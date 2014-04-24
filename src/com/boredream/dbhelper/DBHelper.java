@@ -19,7 +19,7 @@ import com.boredream.dbhelper.exception.QueryValueNullException;
 
 public class DBHelper extends SQLiteOpenHelper {
 	private static final String TAG = "DBHelper";
-
+	
 	private static final String DATABASE_NAME = "meowmomentData";// 数据库的名字
 	private static final int DATABASE_VERSION = 1;// 数据库的版本
 
@@ -58,38 +58,22 @@ public class DBHelper extends SQLiteOpenHelper {
 		sb.append(clazz.getSimpleName() + "(");
 		sb.append(BaseColumns._ID + " INTEGER PRIMARY KEY AUTOINCREMENT");
 
-		Field[] fields = clazz.getFields();
+		Field[] fields = clazz.getDeclaredFields();
 		for (int i = 0; i < fields.length; i++) {
 			Field field = fields[i];
-			String type = parseDBPriType(field.getType());
-			String fieldName = field.getName();
-			
-			if(fieldName.equals(BaseColumns._ID)) {
-				continue;
+			if(HelperUtils.isDBableType(field)) {
+				String type = parseDBPriType(field.getType());
+				String fieldName = field.getName();
+				
+				if(fieldName.equals(BaseColumns._ID)) {
+					continue;
+				}
+				sb.append(", " + fieldName + " " + type);
 			}
-			
-			sb.append(", " + fieldName + " " + type);
 		}
 		sb.append(");");
 		Log.i(TAG, "first create table, sql = \n" + sb.toString());
 		db.execSQL(sb.toString());
-	}
-
-	private String parseDBPriType(Class<?> clazzType) {
-		String type = null;
-		if (clazzType == int.class || clazzType == Integer.class
-				|| clazzType == long.class || clazzType == Long.class) {
-			type = "INTEGER";
-		} else if (clazzType == float.class || clazzType == Float.class
-				|| clazzType == double.class || clazzType == Double.class) {
-			type = "REAL";
-		} else if (clazzType == char.class || clazzType == Character.class
-				|| clazzType == String.class) {
-			type = "TEXT";
-		} else if (clazzType == boolean.class || clazzType == Boolean.class) {
-			type = "TEXT";
-		}
-		return type;
 	}
 
 	/**
@@ -143,14 +127,24 @@ public class DBHelper extends SQLiteOpenHelper {
 		Class<? extends BaseData> clazz = data.getClass();
 		ContentValues values = new ContentValues();
 
-		Field[] fields = clazz.getFields();
+		Field[] fields = clazz.getDeclaredFields();
 		try {
 			for (int i = 0; i < fields.length; i++) {
 				Field field = fields[i];
+				if(!HelperUtils.isDBableType(field)) {
+					continue;
+				}
+				
+				field.setAccessible(true);
 				if (field.getName().equals(BaseColumns._ID) || field.get(data) == null) {
 					continue;
 				}
-				values.put(field.getName(), field.get(data).toString());
+				if(field.getType() == java.util.Date.class
+						|| field.getType() == java.sql.Date.class) {
+					values.put(field.getName(), HelperUtils.Date2String(field.get(data)));
+				} else {
+					values.put(field.getName(), field.get(data).toString());
+				}
 			}
 		} catch (IllegalArgumentException e) {
 			e.printStackTrace();
@@ -248,7 +242,7 @@ public class DBHelper extends SQLiteOpenHelper {
 		initTables(clazz);
 		
 		List<String> fieldNames = new ArrayList<String>();
-		for (Field field : clazz.getFields()) {
+		for (Field field : clazz.getDeclaredFields()) {
 			fieldNames.add(field.getName());
 		}
 		if (!fieldNames.contains(fieldName)) {
@@ -290,7 +284,7 @@ public class DBHelper extends SQLiteOpenHelper {
 		}
 		Class<? extends BaseData> clazz = data.getClass();
 		ContentValues values = new ContentValues();
-		for (Field field : clazz.getFields()) {
+		for (Field field : clazz.getDeclaredFields()) {
 			values.put(field.getName(), field.get(data).toString());
 		}
 		int id = db.update(data.getClass().getSimpleName(), values,
@@ -352,7 +346,7 @@ public class DBHelper extends SQLiteOpenHelper {
 				dataList = new ArrayList<BaseData>();
 				do {
 					data = clazz.newInstance();
-					for (Field field : clazz.getFields()) {
+					for (Field field : clazz.getDeclaredFields()) {
 						setDBData2Bean(data, cursor, field);
 					}
 					dataList.add(data);
@@ -372,6 +366,28 @@ public class DBHelper extends SQLiteOpenHelper {
 		return queryDataByField(clazz, null, null);
 	}
 
+	private String parseDBPriType(Class<?> clazzType) {
+		String type = null;
+		if (clazzType == int.class || clazzType == Integer.class
+				|| clazzType == long.class || clazzType == Long.class) {
+			type = "INTEGER";
+		} else if (clazzType == float.class || clazzType == Float.class
+				|| clazzType == double.class || clazzType == Double.class) {
+			type = "REAL";
+		} else if (clazzType == char.class || clazzType == Character.class
+				|| clazzType == String.class) {
+			type = "TEXT";
+		} else if (clazzType == boolean.class || clazzType == Boolean.class) {
+			type = "TEXT";
+		} else if( clazzType == java.util.Date.class 
+				|| clazzType == java.sql.Date.class ) {
+			type = "TEXT";
+		} else if(clazzType == BaseData.class) {
+//			外键
+		}
+		return type;
+	}
+	
 	/**
 	 * 将数据库查询到的数据设置到指定对象参数上
 	 * <p>
@@ -408,6 +424,10 @@ public class DBHelper extends SQLiteOpenHelper {
 				|| clazzType == Boolean.class) {
 			field.set(data, Boolean.parseBoolean(cursor
 					.getString(columnIndex)));
+		} else if(clazzType == java.util.Date.class 
+				|| clazzType == java.sql.Date.class) {
+			field.set(data, HelperUtils.String2Date(
+					cursor.getString(columnIndex)));
 		}
 	}
 
