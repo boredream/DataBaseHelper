@@ -9,13 +9,15 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
-import android.provider.BaseColumns;
 import android.text.TextUtils;
 import android.util.Log;
 
 import com.boredream.dbhelper.exception.NotFindFieldException;
-import com.boredream.dbhelper.exception.NullIDException;
+import com.boredream.dbhelper.exception.NotFindKeyFieldException;
 import com.boredream.dbhelper.exception.QueryValueNullException;
+import com.boredream.dbhelper.utils.DateUtils;
+import com.boredream.dbhelper.utils.FieldUtils;
+import com.boredream.dbhelper.utils.TableUtils;
 
 public class DBHelper extends SQLiteOpenHelper {
 	private static final String DATABASE_NAME = "meowmomentData";// 数据库的名字
@@ -76,7 +78,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @return true-插入成功
 	 * @throws Exception
 	 */
-	public <T> boolean saveData(T data) {
+	public <T> boolean save(T data) {
 		TableUtils.initTables(db, data.getClass());
 
 		Class<?> clazz = data.getClass();
@@ -86,17 +88,17 @@ public class DBHelper extends SQLiteOpenHelper {
 		try {
 			for (int i = 0; i < fields.length; i++) {
 				Field field = fields[i];
-				if(!HelperUtils.isDBableType(field)) {
+				if(!FieldUtils.isDBableType(field)) {
 					continue;
 				}
 				
 				field.setAccessible(true);
-				if (field.getAnnotation(Id.class) != null || field.getName().equals(BaseColumns._ID) || field.get(data) == null) {
+				if (field.getAnnotation(Id.class) != null || field.get(data) == null) {
 					continue;
 				}
 				if(field.getType() == java.util.Date.class
 						|| field.getType() == java.sql.Date.class) {
-					values.put(field.getName(), HelperUtils.Date2String(field.get(data)));
+					values.put(field.getName(), DateUtils.Date2String(field.get(data)));
 				} else {
 					values.put(field.getName(), field.get(data).toString());
 				}
@@ -117,7 +119,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @param dataList
 	 * @return 保存失败的数据列表
 	 */
-	public <T> List<T> saveDataList(List<T> dataList) {
+	public <T> List<T> saveAll(List<T> dataList) {
 		List<T> failAddDataList = new ArrayList<T>();
 		try {
 			// 批量保存采用事务处理,提高效率
@@ -126,7 +128,7 @@ public class DBHelper extends SQLiteOpenHelper {
 			boolean isAddSuccess;
 			for (int i = 0; i < dataList.size(); i++) {
 				data = dataList.get(i);
-				isAddSuccess = saveData(data);
+				isAddSuccess = save(data);
 				if (isAddSuccess) {
 					failAddDataList.add(data);
 				}
@@ -140,14 +142,30 @@ public class DBHelper extends SQLiteOpenHelper {
 
 	/**
 	 * 删除指定数据,实质还是利用对象_id删除
+	 * @param <T>
 	 * 
 	 * @param data
 	 *            需要删除的数据
 	 * @return true-删除成功
+	 * @throws NotFindKeyFieldException 
+	 * 			该类中未找到主键参数
 	 */
-	public boolean deleteData(BaseData data) {
+	public <T> boolean deleteData(T data) throws NotFindKeyFieldException {
+		boolean success = false;
 		Class<?> clazz = data.getClass();
-		return deleteDataById(clazz, data._id);
+		Field keyField = FieldUtils.getKeyField(data.getClass());
+		if(keyField == null) {
+			throw new NotFindKeyFieldException();
+		}
+		try {
+			keyField.setAccessible(true);
+			success = deleteDataById(clazz, String.valueOf(keyField.get(data)));
+		} catch (IllegalArgumentException e) {
+			e.printStackTrace();
+		} catch (IllegalAccessException e) {
+			e.printStackTrace();
+		}
+		return success;
 	}
 
 	/**
@@ -157,22 +175,28 @@ public class DBHelper extends SQLiteOpenHelper {
 	 *            需要删除的数据类型
 	 * @param delId
 	 *            目标数据的id值
+	 *            
 	 * @return true-删除成功
+	 * 
+	 * @throws NotFindKeyFieldException 
+	 * 				该类中未找到主键参数
 	 * @throws NotFindFieldException
-	 *             该类中未找到对应参数异常
+	 *             该类中未找到对应参数
 	 * @throws QueryValueNullException
-	 *             查询值为空异常
+	 *             查询值为空
 	 */
-	public boolean deleteDataById(Class<?> clazz, long delId) {
-		boolean isSuccess;
+	public boolean deleteDataById(Class<?> clazz, String delId) throws NotFindKeyFieldException {
+		boolean isSuccess = false;
+		Field keyField = FieldUtils.getKeyField(clazz);
+		if(keyField == null) {
+			throw new NotFindKeyFieldException();
+		}
 		try {
-			isSuccess = deleteDataByField(clazz, BaseColumns._ID, String.valueOf(delId)) == 1;
+			isSuccess = deleteDataByField(clazz, keyField.getName(), delId) > 0;
 		} catch (NotFindFieldException e) {
 			e.printStackTrace();
-			isSuccess = false;
 		} catch (QueryValueNullException e) {
 			e.printStackTrace();
-			isSuccess = false;
 		}
 		return isSuccess;
 	}
@@ -188,9 +212,9 @@ public class DBHelper extends SQLiteOpenHelper {
 	 *            需要搜索参数对应的值
 	 * @return 0-删除失败; >0删除成功的条数
 	 * @throws NotFindFieldException
-	 *             该类中未找到对应参数异常
+	 *             该类中未找到对应参数
 	 * @throws QueryValueNullException
-	 *             查询值为空异常
+	 *             查询值为空
 	 */
 	public int deleteDataByField(Class<?> clazz,
 			String fieldName, String value) throws NotFindFieldException,
@@ -224,29 +248,37 @@ public class DBHelper extends SQLiteOpenHelper {
 
 	/**
 	 * 更新数据
+	 * @param <T>
 	 * 
 	 * @param data
 	 *            更新的数据对象
 	 * @return true-更新成功
-	 * @throws NullIDException
-	 *             更新数据对象id为空(无法定位到数据库数据,更新失败)
-	 * @throws IllegalAccessException
-	 * @throws IllegalArgumentException
+	 * @throws NotFindKeyFieldException
+	 *             该类中未找到主键参数
 	 */
-	public boolean updateData(BaseData data) throws NullIDException,
-			IllegalArgumentException, IllegalAccessException {
-		if (data._id == 0) {
-			throw new NullIDException();
+	public <T> boolean updateData(T data) throws NotFindKeyFieldException {
+		boolean success = false;
+		Field keyField = FieldUtils.getKeyField(data.getClass());
+		if(keyField == null) {
+			throw new NotFindKeyFieldException();
 		}
 		Class<?> clazz = data.getClass();
 		ContentValues values = new ContentValues();
-		for (Field field : clazz.getDeclaredFields()) {
-			values.put(field.getName(), field.get(data).toString());
+		try {
+			for (Field field : clazz.getDeclaredFields()) {
+				field.setAccessible(true);
+				values.put(field.getName(), field.get(data).toString());
+			}
+			int id = db.update(data.getClass().getSimpleName(), values,
+					keyField.getName() + " = ?",
+					new String[] { String.valueOf(keyField.get(data)) });
+			success = id > 0;
+		} catch (IllegalArgumentException e) {
+			e.printStackTrace();
+		} catch (IllegalAccessException e) {
+			e.printStackTrace();
 		}
-		int id = db.update(data.getClass().getSimpleName(), values,
-				BaseColumns._ID + " = ?",
-				new String[] { String.valueOf(data._id) });
-		return id <= 0;
+		return success;
 	}
 
 	/**
@@ -257,17 +289,27 @@ public class DBHelper extends SQLiteOpenHelper {
 	 *            需要查询的类型
 	 * @param queryId
 	 *            需要查询的id
+	 *            
 	 * @return 查询到的数据,查不到时返回null
-	 * @throws IllegalAccessException
-	 * @throws IllegalArgumentException
-	 * @throws InstantiationException
+	 * 
+	 * @throws NotFindKeyFieldException 
+	 * 				该类中未找到主键参数
 	 */
-	public <T> T queryDataById(Class<T> clazz, long queryId)
-			throws IllegalArgumentException, IllegalAccessException,
-			InstantiationException {
-		List<T> dataList = queryDataByField(clazz, BaseColumns._ID,
-				String.valueOf(queryId));
-		return dataList == null ? null : dataList.get(0);
+	public <T> T queryById(Class<T> clazz, String queryId) throws NotFindKeyFieldException {
+		List<T> datas;
+		T data = null;
+		
+		Field keyField = FieldUtils.getKeyField(clazz);
+		if(keyField == null) {
+			throw new NotFindKeyFieldException();
+		}
+			
+		datas = queryByField(clazz, keyField.getName(), queryId);
+		
+		if(datas != null && datas.size() > 0) {
+			data = datas.get(0);
+		}
+		return data;
 	}
 
 	/**
@@ -279,11 +321,8 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @param data
 	 *            需要查询的id
 	 * @return 查询到的数据,查不到时返回null
-	 * @throws IllegalAccessException
-	 * @throws IllegalArgumentException
-	 * @throws InstantiationException
 	 */
-	public <T> List<T> queryDataByField(Class<T> clazz,
+	public <T> List<T> queryByField(Class<T> clazz,
 			String fieldName, String value) {
 		TableUtils.initTables(db, clazz);
 		
@@ -303,6 +342,7 @@ public class DBHelper extends SQLiteOpenHelper {
 				do {
 					data = clazz.newInstance();
 					for (Field field : clazz.getDeclaredFields()) {
+						field.setAccessible(true);
 						setDBData2Bean(data, cursor, field);
 					}
 					dataList.add(data);
@@ -322,8 +362,8 @@ public class DBHelper extends SQLiteOpenHelper {
 		return dataList;
 	}
 
-	public <T> List<T> queryAllData(Class<T> clazz) {
-		return queryDataByField(clazz, null, null);
+	public <T> List<T> queryAll(Class<T> clazz) {
+		return queryByField(clazz, null, null);
 	}
 	
 	/**
@@ -365,7 +405,7 @@ public class DBHelper extends SQLiteOpenHelper {
 					.getString(columnIndex)));
 		} else if(clazzType == java.util.Date.class 
 				|| clazzType == java.sql.Date.class) {
-			field.set(data, HelperUtils.String2Date(
+			field.set(data, DateUtils.String2Date(
 					cursor.getString(columnIndex)));
 		}
 	}

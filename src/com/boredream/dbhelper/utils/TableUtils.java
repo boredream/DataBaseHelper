@@ -1,18 +1,20 @@
-package com.boredream.dbhelper;
+package com.boredream.dbhelper.utils;
 
 import java.lang.reflect.Field;
 
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.provider.BaseColumns;
 import android.util.Log;
+
+import com.boredream.dbhelper.DBConstants;
+import com.boredream.dbhelper.Id;
 
 public class TableUtils {
 	/**
 	 * 初始化数据库中的表,若没有类对应的表时新建一个
 	 * @param <T>
 	 */
-	static <T> void initTables(SQLiteDatabase db, Class<T> clazz) {
+	public static <T> void initTables(SQLiteDatabase db, Class<T> clazz) {
 		Cursor cursor = null;
 		try {
 			boolean isTableExit;
@@ -30,7 +32,7 @@ public class TableUtils {
 		}
 	}
 
-	static <T> void createTable(SQLiteDatabase db, Class<T> clazz) {
+	public static <T> void createTable(SQLiteDatabase db, Class<T> clazz) {
 		StringBuilder sb = new StringBuilder();
 
 		sb.append("CREATE TABLE IF NOT EXISTS ");
@@ -39,12 +41,12 @@ public class TableUtils {
 		Field[] fields = clazz.getDeclaredFields();
 		for (int i = 0; i < fields.length; i++) {
 			Field field = fields[i];
-			if(HelperUtils.isDBableType(field)) {
-				String type = ClassUtils.parseDBPriType(field.getType());
+			if(FieldUtils.isDBableType(field)) {
+				String type = FieldUtils.parsePri2DBType(field.getType());
 				String fieldName = field.getName();
 				
-				// 如果标记了Id注释,或者参数名为"_id"则将作为主键
-				if(field.getAnnotation(Id.class) != null || fieldName.equals(BaseColumns._ID)) {
+				// 如果标记了Id注释,则将作为主键
+				if(field.getAnnotation(Id.class) != null) {
 					sb.append(fieldName + " INTEGER PRIMARY KEY");
 					// 如果是int或者long,则添加自增属性
 					if (field.getType() == int.class || field.getType() == Integer.class || 
@@ -60,31 +62,6 @@ public class TableUtils {
 				if(i < fields.length - 1) {
 					sb.append(", ");
 				}
-			}
-		}
-		sb.append(");");
-		Log.i(DBConstants.TAG, "first create table, sql = \n" + sb.toString());
-		db.execSQL(sb.toString());
-	}
-	
-	static <T> void createTable2(SQLiteDatabase db, Class<T> clazz) {
-		StringBuilder sb = new StringBuilder();
-
-		sb.append("CREATE TABLE IF NOT EXISTS ");
-		sb.append(clazz.getSimpleName() + "(");
-		sb.append(BaseColumns._ID + " INTEGER PRIMARY KEY AUTOINCREMENT");
-
-		Field[] fields = clazz.getDeclaredFields();
-		for (int i = 0; i < fields.length; i++) {
-			Field field = fields[i];
-			if(HelperUtils.isDBableType(field)) {
-				String type = ClassUtils.parseDBPriType(field.getType());
-				String fieldName = field.getName();
-
-				if(fieldName.equals(BaseColumns._ID)) {
-					continue;
-				}
-				sb.append(", " + fieldName + " " + type);
 			}
 		}
 		sb.append(");");
