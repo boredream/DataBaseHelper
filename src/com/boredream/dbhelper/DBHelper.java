@@ -18,8 +18,6 @@ import com.boredream.dbhelper.exception.NullIDException;
 import com.boredream.dbhelper.exception.QueryValueNullException;
 
 public class DBHelper extends SQLiteOpenHelper {
-	private static final String TAG = "DBHelper";
-	
 	private static final String DATABASE_NAME = "meowmomentData";// 数据库的名字
 	private static final int DATABASE_VERSION = 1;// 数据库的版本
 
@@ -38,7 +36,7 @@ public class DBHelper extends SQLiteOpenHelper {
 		if (db == null || !db.isOpen()) {
 			db = getWritableDatabase();
 		}
-		Log.i(TAG, "DatabaseHelper construct");
+		Log.i(DBConstants.TAG, "DatabaseHelper construct");
 	}
 
 	/**
@@ -48,32 +46,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	@Override
 	public void onCreate(SQLiteDatabase db) {
 		// TODO Auto-generated method stub
-		Log.i(TAG, "onCreate()");
-	}
-
-	public void createTable(Class<? extends BaseData> clazz) {
-		StringBuilder sb = new StringBuilder();
-
-		sb.append("CREATE TABLE IF NOT EXISTS ");
-		sb.append(clazz.getSimpleName() + "(");
-		sb.append(BaseColumns._ID + " INTEGER PRIMARY KEY AUTOINCREMENT");
-
-		Field[] fields = clazz.getDeclaredFields();
-		for (int i = 0; i < fields.length; i++) {
-			Field field = fields[i];
-			if(HelperUtils.isDBableType(field)) {
-				String type = parseDBPriType(field.getType());
-				String fieldName = field.getName();
-				
-				if(fieldName.equals(BaseColumns._ID)) {
-					continue;
-				}
-				sb.append(", " + fieldName + " " + type);
-			}
-		}
-		sb.append(");");
-		Log.i(TAG, "first create table, sql = \n" + sb.toString());
-		db.execSQL(sb.toString());
+		Log.i(DBConstants.TAG, "onCreaDB)");
 	}
 
 	/**
@@ -83,7 +56,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	@Override
 	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
 		// TODO Auto-generated method stub
-		Log.i(TAG, "方法onUpgrade() oldVersion = " + oldVersion
+		Log.i(DBConstants.TAG, "方法onUpgrade() oldVersion = " + oldVersion
 				+ "/ newVersion = " + newVersion);
 		/*
 		 * db.execSQL("drop table sms");//如果需要删除此表而重新建立此表时，但是这样会丢失以前的数据---慎用
@@ -93,38 +66,20 @@ public class DBHelper extends SQLiteOpenHelper {
 		db.execSQL("alter table sms add count integer");// 给表再加一列
 	}
 
-	/**
-	 * 初始化数据库中的表,若没有类对应的表时新建一个
-	 */
-	private void initTables(Class<? extends BaseData> clazz) {
-		Cursor cursor = null;
-		try {
-			boolean isTableExit;
-			cursor = db.rawQuery(
-					"SELECT * FROM sqlite_master WHERE TYPE = ? AND name = ?",
-					new String[] { "table", clazz.getSimpleName() });
-			isTableExit = cursor.moveToFirst();
-			if (!isTableExit) {
-				createTable(clazz);
-			}
-		} finally {
-			if(cursor != null) {
-				cursor.close();
-			}
-		}
-	}
+
 
 	/**
 	 * 添加数据
+	 * @param <T>
 	 * 
 	 * @param data
 	 * @return true-插入成功
 	 * @throws Exception
 	 */
-	public boolean addData(BaseData data) {
-		initTables(data.getClass());
+	public <T> boolean saveData(T data) {
+		TableUtils.initTables(db, data.getClass());
 
-		Class<? extends BaseData> clazz = data.getClass();
+		Class<?> clazz = data.getClass();
 		ContentValues values = new ContentValues();
 
 		Field[] fields = clazz.getDeclaredFields();
@@ -136,7 +91,7 @@ public class DBHelper extends SQLiteOpenHelper {
 				}
 				
 				field.setAccessible(true);
-				if (field.getName().equals(BaseColumns._ID) || field.get(data) == null) {
+				if (field.getAnnotation(Id.class) != null || field.getName().equals(BaseColumns._ID) || field.get(data) == null) {
 					continue;
 				}
 				if(field.getType() == java.util.Date.class
@@ -157,20 +112,21 @@ public class DBHelper extends SQLiteOpenHelper {
 
 	/**
 	 * 批量保存
+	 * @param <T>
 	 * 
 	 * @param dataList
 	 * @return 保存失败的数据列表
 	 */
-	public List<BaseData> addDataList(List<BaseData> dataList) {
-		List<BaseData> failAddDataList = new ArrayList<BaseData>();
+	public <T> List<T> saveDataList(List<T> dataList) {
+		List<T> failAddDataList = new ArrayList<T>();
 		try {
 			// 批量保存采用事务处理,提高效率
 			db.beginTransaction();
-			BaseData data;
+			T data;
 			boolean isAddSuccess;
 			for (int i = 0; i < dataList.size(); i++) {
 				data = dataList.get(i);
-				isAddSuccess = addData(data);
+				isAddSuccess = saveData(data);
 				if (isAddSuccess) {
 					failAddDataList.add(data);
 				}
@@ -190,7 +146,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @return true-删除成功
 	 */
 	public boolean deleteData(BaseData data) {
-		Class<? extends BaseData> clazz = data.getClass();
+		Class<?> clazz = data.getClass();
 		return deleteDataById(clazz, data._id);
 	}
 
@@ -207,7 +163,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @throws QueryValueNullException
 	 *             查询值为空异常
 	 */
-	public boolean deleteDataById(Class<? extends BaseData> clazz, long delId) {
+	public boolean deleteDataById(Class<?> clazz, long delId) {
 		boolean isSuccess;
 		try {
 			isSuccess = deleteDataByField(clazz, BaseColumns._ID, String.valueOf(delId)) == 1;
@@ -236,10 +192,10 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @throws QueryValueNullException
 	 *             查询值为空异常
 	 */
-	public int deleteDataByField(Class<? extends BaseData> clazz,
+	public int deleteDataByField(Class<?> clazz,
 			String fieldName, String value) throws NotFindFieldException,
 			QueryValueNullException {
-		initTables(clazz);
+		TableUtils.initTables(db, clazz);
 		
 		List<String> fieldNames = new ArrayList<String>();
 		for (Field field : clazz.getDeclaredFields()) {
@@ -282,7 +238,7 @@ public class DBHelper extends SQLiteOpenHelper {
 		if (data._id == 0) {
 			throw new NullIDException();
 		}
-		Class<? extends BaseData> clazz = data.getClass();
+		Class<?> clazz = data.getClass();
 		ContentValues values = new ContentValues();
 		for (Field field : clazz.getDeclaredFields()) {
 			values.put(field.getName(), field.get(data).toString());
@@ -295,6 +251,7 @@ public class DBHelper extends SQLiteOpenHelper {
 
 	/**
 	 * 利用_id查询某条数据
+	 * @param <T>
 	 * 
 	 * @param clazz
 	 *            需要查询的类型
@@ -305,16 +262,17 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @throws IllegalArgumentException
 	 * @throws InstantiationException
 	 */
-	public BaseData queryDataById(Class<? extends BaseData> clazz, long queryId)
+	public <T> T queryDataById(Class<T> clazz, long queryId)
 			throws IllegalArgumentException, IllegalAccessException,
 			InstantiationException {
-		List<BaseData> dataList = queryDataByField(clazz, BaseColumns._ID,
+		List<T> dataList = queryDataByField(clazz, BaseColumns._ID,
 				String.valueOf(queryId));
 		return dataList == null ? null : dataList.get(0);
 	}
 
 	/**
 	 * 利用参数查询数据,可能是多条
+	 * @param <T>
 	 * 
 	 * @param clazz
 	 *            需要查询的类型
@@ -325,14 +283,12 @@ public class DBHelper extends SQLiteOpenHelper {
 	 * @throws IllegalArgumentException
 	 * @throws InstantiationException
 	 */
-	public List<BaseData> queryDataByField(Class<? extends BaseData> clazz,
-			String fieldName, String value)
-			throws IllegalArgumentException, IllegalAccessException,
-			InstantiationException {
-		initTables(clazz);
+	public <T> List<T> queryDataByField(Class<T> clazz,
+			String fieldName, String value) {
+		TableUtils.initTables(db, clazz);
 		
-		List<BaseData> dataList = null;
-		BaseData data = null;
+		List<T> dataList = null;
+		T data = null;
 		Cursor cursor = null;
 
 		try {
@@ -343,7 +299,7 @@ public class DBHelper extends SQLiteOpenHelper {
 					TextUtils.isEmpty(fieldName) ? null : new String[] { value },
 					null, null, null);
 			if (cursor.moveToFirst()) {
-				dataList = new ArrayList<BaseData>();
+				dataList = new ArrayList<T>();
 				do {
 					data = clazz.newInstance();
 					for (Field field : clazz.getDeclaredFields()) {
@@ -352,6 +308,12 @@ public class DBHelper extends SQLiteOpenHelper {
 					dataList.add(data);
 				} while (cursor.moveToNext());
 			}
+		} catch (IllegalArgumentException e) {
+			e.printStackTrace();
+		} catch (IllegalAccessException e) {
+			e.printStackTrace();
+		} catch (InstantiationException e) {
+			e.printStackTrace();
 		} finally {
 			if(cursor != null) {
 				cursor.close();
@@ -360,38 +322,15 @@ public class DBHelper extends SQLiteOpenHelper {
 		return dataList;
 	}
 
-	public List<? extends BaseData> queryAllData(Class<? extends BaseData> clazz)
-			throws IllegalArgumentException, IllegalAccessException,
-			InstantiationException {
+	public <T> List<T> queryAllData(Class<T> clazz) {
 		return queryDataByField(clazz, null, null);
-	}
-
-	private String parseDBPriType(Class<?> clazzType) {
-		String type = null;
-		if (clazzType == int.class || clazzType == Integer.class
-				|| clazzType == long.class || clazzType == Long.class) {
-			type = "INTEGER";
-		} else if (clazzType == float.class || clazzType == Float.class
-				|| clazzType == double.class || clazzType == Double.class) {
-			type = "REAL";
-		} else if (clazzType == char.class || clazzType == Character.class
-				|| clazzType == String.class) {
-			type = "TEXT";
-		} else if (clazzType == boolean.class || clazzType == Boolean.class) {
-			type = "TEXT";
-		} else if( clazzType == java.util.Date.class 
-				|| clazzType == java.sql.Date.class ) {
-			type = "TEXT";
-		} else if(clazzType == BaseData.class) {
-//			外键
-		}
-		return type;
 	}
 	
 	/**
 	 * 将数据库查询到的数据设置到指定对象参数上
 	 * <p>
 	 * 自动判断数据类型并赋值
+	 * @param <T>
 	 * 
 	 * @param data
 	 *            需要设置值的数据
@@ -400,7 +339,7 @@ public class DBHelper extends SQLiteOpenHelper {
 	 *            需要赋值对象的参数
 	 * @throws IllegalAccessException
 	 */
-	private void setDBData2Bean(BaseData data, Cursor cursor, Field field)
+	private <T> void setDBData2Bean(T data, Cursor cursor, Field field)
 			throws IllegalAccessException {
 		field.setAccessible(true);
 		int columnIndex = cursor.getColumnIndex(field.getName());
